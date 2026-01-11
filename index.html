@@ -1,97 +1,152 @@
 <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>Gorilla Tag WebGL</title>
-        <base href="${unityBaseURL}">
-        <link rel="shortcut icon" href="TemplateData/favicon.ico">
-        <link rel="stylesheet" href="TemplateData/style.css">
-        <style>
-            html, body {
-                margin: 0;
-                padding: 0;
-                height: 100%;
-                overflow: hidden;
-                background: #231F20;
-                font-family: Arial, sans-serif;
-            }
-            #unity-container {
-                width: 100%;
-                height: 100%;
-                position: fixed;
-                top: 0;
-                left: 0;
-            }
-            #loading-text {
-                position: absolute;
-                top: 20px;
-                width: 100%;
-                text-align: center;
-                font-size: 32px;
-                color: white;
-            }
-            #unity-progress-bar-empty {
-                width: 50%;
-                height: 20px;
-                background: #555;
-                margin: 0 auto;
-                margin-top: 60px;
-                border-radius: 10px;
-                overflow: hidden;
-            }
-            #unity-progress-bar-full {
-                width: 0%;
-                height: 100%;
-                background: #4facfe;
-            }
-        </style>
-    </head>
-    <body>
-        <div id="loading-text">LOADING... 0%</div>
-        <div id="unity-container" class="unity-desktop" hidden>
-            <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
-            <div id="unity-loading-bar">
-                <div id="unity-progress-bar-empty">
-                    <div id="unity-progress-bar-full"></div>
-                </div>
-            </div>
+<html lang="en-us">
+<head>
+    <base href="https://cdn.jsdelivr.net/gh/web-ports/gorilla-tag@main/">
+    <meta charset="utf-8">
+    <title>Unity WebGL Player | Gorilla Tag</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background: #231F20;
+            font-family: Arial, sans-serif;
+        }
+
+        #unity-container {
+            width: 100%;
+            height: 100%;
+            position: fixed;
+            top: 0;
+            left: 0;
+            display: none;
+        }
+
+        #loading-text {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            font-size: 36px;
+            color: white;
+        }
+
+        #unity-progress-bar-empty {
+            width: 50%;
+            height: 20px;
+            background: #555;
+            margin: 80px auto 0 auto;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #unity-progress-bar-full {
+            width: 0%;
+            height: 100%;
+            background: #4facfe;
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading-text">LOADING... 0 MB / 175.89 MB</div>
+<div id="unity-container" class="unity-desktop">
+    <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
+    <div id="unity-loading-bar">
+        <div id="unity-progress-bar-empty">
+            <div id="unity-progress-bar-full"></div>
         </div>
-        <script>
-            var canvas = document.getElementById("unity-canvas");
-            var loadingBarFull = document.getElementById("unity-progress-bar-full");
-            var loadingText = document.getElementById("loading-text");
-            var container = document.getElementById("unity-container");
+    </div>
+</div>
 
-            function unityShowBanner(msg, type) {
-                console.log(type + ": " + msg);
-            }
+<script>
+(async () => {
+    const loadingText = document.getElementById("loading-text");
+    const progressBarFull = document.getElementById("unity-progress-bar-full");
+    const container = document.getElementById("unity-container");
 
-            var buildUrl = "${unityBaseURL}Build";
-            var loaderUrl = buildUrl + "/gtagwebR2.loader.js";
-            var config = {
-                dataUrl: buildUrl + "/gtagwebR2.data.unityweb",
-                frameworkUrl: buildUrl + "/gtagwebR2.framework.js.unityweb",
-                codeUrl: buildUrl + "/gtagwebR2.wasm.unityweb",
-                companyName: "boolonx",
-                productName: "gorilla tag web",
-                productVersion: "1.0",
-                showBanner: unityShowBanner
-            };
+    const totalMB = 175.89;
+    let loadedBytes = 0;
 
-            var script = document.createElement("script");
-            script.src = loaderUrl;
-            script.onload = () => {
-                createUnityInstance(canvas, config, (progress) => {
-                    // Update progress bar and text
-                    const percent = Math.round(progress * 100);
-                    loadingBarFull.style.width = percent + "%";
-                    loadingText.innerText = "LOADING... " + percent + "%";
-                }).then((unityInstance) => {
-                    loadingText.style.display = "none";
-                    container.hidden = false;
-                }).catch((err) => alert(err));
-            };
-            document.body.appendChild(script);
-        <\/script>
-    </body>
-    </html>
+    async function fetchWithProgress(url) {
+        const response = await fetch(url);
+        const reader = response.body.getReader();
+        const contentLength = +response.headers.get("Content-Length") || 0;
+        let received = 0;
+        const chunks = [];
+
+        while(true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            loadedBytes += value.length;
+            let mbDone = (loadedBytes / (1024 * 1024)).toFixed(2);
+            let percent = Math.min((loadedBytes / (totalMB * 1024 * 1024)) * 100, 100);
+            loadingText.textContent = `LOADING... ${mbDone} MB / ${totalMB} MB`;
+            progressBarFull.style.width = percent + "%";
+        }
+
+        const fullBuffer = new Uint8Array(received);
+        let offset = 0;
+        for (let chunk of chunks) {
+            fullBuffer.set(chunk, offset);
+            offset += chunk.length;
+        }
+        return fullBuffer.buffer;
+    }
+
+    async function mergeFiles(parts) {
+        const buffers = await Promise.all(parts.map(p => fetchWithProgress(p)));
+        return URL.createObjectURL(new Blob(buffers));
+    }
+
+    function getParts(file, start, end) {
+        const parts = [];
+        for (let i = start; i <= end; i++) parts.push(file + ".part" + i);
+        return parts;
+    }
+
+    const [dataUrl, wasmUrl] = await Promise.all([
+        mergeFiles(getParts("Build/gtag.data.gz", 1, 7)),
+        mergeFiles(getParts("Build/gtag.wasm.gz", 1, 2))
+    ]);
+
+    const buildUrl = "Build";
+    const loaderUrl = buildUrl + "/gtag.loader.js";
+
+    const config = {
+        dataUrl,
+        frameworkUrl: buildUrl + "/gtag.framework.js",
+        codeUrl: wasmUrl,
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "boolonx",
+        productName: "gorilla tag web",
+        productVersion: "1.0",
+    };
+
+    container.style.display = "block";
+    const canvas = document.getElementById("unity-canvas");
+
+    const script = document.createElement("script");
+    script.src = loaderUrl;
+    script.onload = () => {
+        createUnityInstance(canvas, config, progress => {
+            // Update progress bar as Unity loads
+            const percent = Math.floor(progress * 100);
+            progressBarFull.style.width = percent + "%";
+        }).then(unityInstance => {
+            loadingText.remove();
+            container.style.display = "block";
+        }).catch(err => alert(err));
+    };
+
+    document.body.appendChild(script);
+})();
+</script>
+
+</body>
+</html>
