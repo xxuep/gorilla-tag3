@@ -1,152 +1,119 @@
 <!DOCTYPE html>
 <html lang="en-us">
 <head>
-    <base href="https://cdn.jsdelivr.net/gh/web-ports/gorilla-tag@main/">
-    <meta charset="utf-8">
-    <title>Unity WebGL Player | Gorilla Tag</title>
-    <link rel="shortcut icon" href="TemplateData/favicon.ico">
-    <link rel="stylesheet" href="TemplateData/style.css">
-    <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            overflow: hidden;
-            background: #231F20;
-            font-family: Arial, sans-serif;
-        }
-
-        #unity-container {
-            width: 100%;
-            height: 100%;
-            position: fixed;
-            top: 0;
-            left: 0;
-            display: none;
-        }
-
-        #loading-text {
-            position: absolute;
-            top: 20px;
-            width: 100%;
-            text-align: center;
-            font-size: 36px;
-            color: white;
-        }
-
-        #unity-progress-bar-empty {
-            width: 50%;
-            height: 20px;
-            background: #555;
-            margin: 80px auto 0 auto;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-
-        #unity-progress-bar-full {
-            width: 0%;
-            height: 100%;
-            background: #4facfe;
-        }
-    </style>
+<meta charset="utf-8">
+<title>Gorilla Tag Loader</title>
+<link rel="shortcut icon" href="TemplateData/favicon.ico">
+<link rel="stylesheet" href="TemplateData/style.css">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#231F20; overflow:hidden; font-family:Arial, sans-serif; }
+  #unity-container { width:100%; height:100%; position:fixed; top:0; left:0; display:none; }
+  #unity-loading-bar { display:block; width:50%; height:20px; background:#555; border-radius:10px; overflow:hidden; margin:80px auto 0 auto; }
+  #unity-progress-bar-full { width:0%; height:100%; background:#4facfe; }
+  #loading-text { position:absolute; top:20px; width:100%; text-align:center; font-size:36px; color:white; }
+  #unity-warning { position:absolute; top:60px; width:100%; text-align:center; font-size:20px; color:yellow; }
+</style>
 </head>
 <body>
 
 <div id="loading-text">LOADING... 0 MB / 175.89 MB</div>
 <div id="unity-container" class="unity-desktop">
-    <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
-    <div id="unity-loading-bar">
-        <div id="unity-progress-bar-empty">
-            <div id="unity-progress-bar-full"></div>
-        </div>
-    </div>
+  <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
+  <div id="unity-loading-bar"><div id="unity-progress-bar-full"></div></div>
+  <div id="unity-warning"></div>
 </div>
 
 <script>
 (async () => {
-    const loadingText = document.getElementById("loading-text");
-    const progressBarFull = document.getElementById("unity-progress-bar-full");
-    const container = document.getElementById("unity-container");
+  const loadingText = document.getElementById("loading-text");
+  const progressBarFull = document.getElementById("unity-progress-bar-full");
+  const container = document.getElementById("unity-container");
+  const totalMB = 175.89;
+  let loadedBytes = 0;
 
-    const totalMB = 175.89;
-    let loadedBytes = 0;
-
-    async function fetchWithProgress(url) {
-        const response = await fetch(url);
-        const reader = response.body.getReader();
-        const contentLength = +response.headers.get("Content-Length") || 0;
-        let received = 0;
-        const chunks = [];
-
-        while(true) {
-            const {done, value} = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            received += value.length;
-            loadedBytes += value.length;
-            let mbDone = (loadedBytes / (1024 * 1024)).toFixed(2);
-            let percent = Math.min((loadedBytes / (totalMB * 1024 * 1024)) * 100, 100);
-            loadingText.textContent = `LOADING... ${mbDone} MB / ${totalMB} MB`;
-            progressBarFull.style.width = percent + "%";
-        }
-
-        const fullBuffer = new Uint8Array(received);
-        let offset = 0;
-        for (let chunk of chunks) {
-            fullBuffer.set(chunk, offset);
-            offset += chunk.length;
-        }
-        return fullBuffer.buffer;
+  async function fetchWithProgress(url) {
+    const response = await fetch(url);
+    const reader = response.body.getReader();
+    let chunks = [];
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      chunks.push(value);
+      loadedBytes += value.length;
+      let mbDone = (loadedBytes / (1024*1024)).toFixed(2);
+      let percent = Math.min((loadedBytes / (totalMB*1024*1024))*100,100);
+      loadingText.textContent = `LOADING... ${mbDone} MB / ${totalMB} MB`;
+      progressBarFull.style.width = percent + "%";
     }
+    const totalLength = chunks.reduce((sum,c)=>sum+c.length,0);
+    const buffer = new Uint8Array(totalLength);
+    let offset = 0;
+    for(let chunk of chunks){ buffer.set(chunk, offset); offset+=chunk.length; }
+    return buffer.buffer;
+  }
 
-    async function mergeFiles(parts) {
-        const buffers = await Promise.all(parts.map(p => fetchWithProgress(p)));
-        return URL.createObjectURL(new Blob(buffers));
-    }
+  async function mergeFiles(parts) {
+    const buffers = await Promise.all(parts.map(p=>fetchWithProgress(p)));
+    return URL.createObjectURL(new Blob(buffers));
+  }
 
-    function getParts(file, start, end) {
-        const parts = [];
-        for (let i = start; i <= end; i++) parts.push(file + ".part" + i);
-        return parts;
-    }
+  function getParts(file,start,end){
+    const parts = [];
+    for(let i=start;i<=end;i++) parts.push(file+".part"+i);
+    return parts;
+  }
 
-    const [dataUrl, wasmUrl] = await Promise.all([
-        mergeFiles(getParts("Build/gtag.data.gz", 1, 7)),
-        mergeFiles(getParts("Build/gtag.wasm.gz", 1, 2))
-    ]);
+  // Fetch and merge data and wasm parts
+  const [dataUrl, wasmUrl] = await Promise.all([
+    mergeFiles(getParts("Build/gtagwebR2.data.unityweb",1,7)),
+    mergeFiles(getParts("Build/gtagwebR2.wasm.unityweb",1,2))
+  ]);
 
-    const buildUrl = "Build";
-    const loaderUrl = buildUrl + "/gtag.loader.js";
+  const buildUrl = "Build";
+  const loaderUrl = buildUrl + "/gtagwebR2.loader.js";
 
-    const config = {
-        dataUrl,
-        frameworkUrl: buildUrl + "/gtag.framework.js",
-        codeUrl: wasmUrl,
-        streamingAssetsUrl: "StreamingAssets",
-        companyName: "boolonx",
-        productName: "gorilla tag web",
-        productVersion: "1.0",
-    };
+  const containerEl = document.getElementById("unity-container");
+  containerEl.style.display = "block";
+  const canvas = document.getElementById("unity-canvas");
+  const loadingBar = document.getElementById("unity-loading-bar");
+  const warningBanner = document.getElementById("unity-warning");
 
-    container.style.display = "block";
-    const canvas = document.getElementById("unity-canvas");
+  function unityShowBanner(msg,type){
+    const div = document.createElement("div"); div.innerHTML = msg;
+    warningBanner.appendChild(div);
+    if(type=="error") div.style="background:red;padding:10px;";
+    else if(type=="warning") div.style="background:yellow;padding:10px;";
+    if(type!="error") setTimeout(()=>{ warningBanner.removeChild(div); },5000);
+  }
 
-    const script = document.createElement("script");
-    script.src = loaderUrl;
-    script.onload = () => {
-        createUnityInstance(canvas, config, progress => {
-            // Update progress bar as Unity loads
-            const percent = Math.floor(progress * 100);
-            progressBarFull.style.width = percent + "%";
-        }).then(unityInstance => {
-            loadingText.remove();
-            container.style.display = "block";
-        }).catch(err => alert(err));
-    };
+  const config = {
+    dataUrl,
+    frameworkUrl: buildUrl + "/gtagwebR2.framework.js.unityweb",
+    codeUrl: wasmUrl,
+    streamingAssetsUrl: "StreamingAssets",
+    companyName: "boolonx",
+    productName: "gorilla tag web",
+    productVersion: "1.0",
+    showBanner: unityShowBanner
+  };
 
-    document.body.appendChild(script);
+  loadingBar.style.display = "block";
+
+  const script = document.createElement("script");
+  script.src = loaderUrl;
+  script.onload = () => {
+    createUnityInstance(canvas, config, progress=>{
+      const percent = Math.floor(progress*100);
+      progressBarFull.style.width = percent + "%";
+    }).then(unityInstance=>{
+      loadingText.remove();
+      loadingBar.style.display="none";
+      canvas.style.display="block";
+    }).catch(msg=>alert(msg));
+  };
+  document.body.appendChild(script);
+
 })();
 </script>
-
 </body>
 </html>
